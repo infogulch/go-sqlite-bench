@@ -3,8 +3,8 @@
 # exit on error
 set -e
 
-# run in parent directory (where binaries are built)
-cd ..
+# run in bench directory (where binaries are built)
+cd `dirname "$0"`/bench
 
 # run every benchmark twice and take results of second run
 date && ./bench-craw    bench.db  && ./bench-craw    bench.db
