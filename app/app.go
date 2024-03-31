@@ -21,6 +21,7 @@ func Run(makeDb func(dbfile string) Db) {
 		"many":       new(bool),
 		"large":      new(bool),
 		"concurrent": new(bool),
+		"wal":        new(bool),
 	}
 	for name, p := range benchmarks {
 		flag.BoolVar(p, name, true, "")
@@ -57,18 +58,39 @@ func Run(makeDb func(dbfile string) Db) {
 		benchConcurrent(dbfile, verbose, 4, makeDb)
 		benchConcurrent(dbfile, verbose, 8, makeDb)
 	}
+	if *benchmarks["wal"] {
+		benchWal(dbfile, verbose, 1, makeDb)
+		benchWal(dbfile, verbose, 4, makeDb)
+		benchWal(dbfile, verbose, 16, makeDb)
+	}
 }
 
 const insertUserSql = "INSERT INTO users(id,created,email,active) VALUES(?,?,?,?)"
 const insertArticleSql = "INSERT INTO articles(id,created,userId,text) VALUES(?,?,?,?)"
 const insertCommentSql = "INSERT INTO comments(id,created,articleId,text) VALUES(?,?,?,?)"
 
-func initSchema(db Db) {
+func initJournalDelete(db Db) {
 	db.Exec(
 		"PRAGMA journal_mode=DELETE",
 		"PRAGMA synchronous=FULL",
 		"PRAGMA foreign_keys=1",
 		"PRAGMA busy_timeout=5000", // 5s busy timeout
+	)
+	initSchema(db)
+}
+
+func initJournalWal(db Db) {
+	db.Exec(
+		"PRAGMA journal_mode=WAL",
+		"PRAGMA synchronous=normal",
+		"PRAGMA foreign_keys=1",
+		"PRAGMA busy_timeout=5000", // 5s busy timeout
+	)
+	initSchema(db)
+}
+
+func initSchema(db Db) {
+	db.Exec(
 		"CREATE TABLE users ("+
 			"id INTEGER PRIMARY KEY NOT NULL,"+
 			" created INTEGER NOT NULL,"+ // time.Time
@@ -98,7 +120,7 @@ func benchSimple(dbfile string, verbose bool, makeDb func(dbfile string) Db) {
 	removeDbfiles(dbfile)
 	db := makeDb(dbfile)
 	defer db.Close()
-	initSchema(db)
+	initJournalDelete(db)
 	// insert users
 	var users []User
 	base := time.Date(2023, 10, 1, 10, 0, 0, 0, time.Local)
@@ -147,7 +169,7 @@ func benchComplex(dbfile string, verbose bool, makeDb func(dbfile string) Db) {
 	removeDbfiles(dbfile)
 	db := makeDb(dbfile)
 	defer db.Close()
-	initSchema(db)
+	initJournalDelete(db)
 	const nusers = 200
 	const narticlesPerUser = 100
 	const ncommentsPerArticle = 20
@@ -264,7 +286,7 @@ func benchMany(dbfile string, verbose bool, nusers int, makeDb func(dbfile strin
 	removeDbfiles(dbfile)
 	db := makeDb(dbfile)
 	defer db.Close()
-	initSchema(db)
+	initJournalDelete(db)
 	// insert users
 	var users []User
 	base := time.Date(2023, 10, 1, 10, 0, 0, 0, time.Local)
@@ -313,7 +335,7 @@ func benchLarge(dbfile string, verbose bool, nsize int, makeDb func(dbfile strin
 	removeDbfiles(dbfile)
 	db := makeDb(dbfile)
 	defer db.Close()
-	initSchema(db)
+	initJournalDelete(db)
 	// insert user with large emails
 	t0 := time.Now()
 	base := time.Date(2023, 10, 1, 10, 0, 0, 0, time.Local)
@@ -358,7 +380,7 @@ func benchConcurrent(dbfile string, verbose bool, ngoroutines int, makeDb func(d
 	removeDbfiles(dbfile)
 	db1 := makeDb(dbfile)
 	driverName := db1.DriverName()
-	initSchema(db1)
+	initJournalDelete(db1)
 	// insert many users
 	base := time.Date(2023, 10, 1, 10, 0, 0, 0, time.Local)
 	const nusers = 1_000_000
@@ -410,4 +432,87 @@ func benchConcurrent(dbfile string, verbose bool, ngoroutines int, makeDb func(d
 	log.Printf("%s - insert - %-10s - %10d", bench, driverName, insertMillis)
 	log.Printf("%s - query  - %-10s - %10d", bench, driverName, queryMillis)
 	log.Printf("%s - dbsize - %-10s - %10d", bench, driverName, dbsize(dbfile))
+}
+
+// Generate 1M users
+// Then split it up into N batches to pass to N goroutines where each goroutine:
+// Splits its batch into 10 chunks, and for each chunk:
+// Inserts the chunk of users, then queries all users
+func benchWal(dbfile string, _verbose bool, ngoroutines int, makeDb func(dbfile string) Db) {
+	removeDbfiles(dbfile)
+	db1 := makeDb(dbfile)
+	driverName := db1.DriverName()
+	initJournalWal(db1)
+	db1.Close()
+	// Prepare many users
+	base := time.Date(2023, 10, 1, 10, 0, 0, 0, time.Local)
+	const nusers = 1_000_000
+	var users []User
+	for i := 0; i < nusers; i++ {
+		users = append(users, NewUser(
+			i+1,                                    // Id
+			base.Add(time.Duration(i)*time.Second), // Created
+			fmt.Sprintf("user%d@example.com", i+1), // Email
+			true,                                   // Active
+		))
+	}
+	chunkUsers := func(u []User, n int) [][]User {
+		cn := len(u) / n
+		cu := make([][]User, 0, n)
+		for i := range n {
+			cu = append(cu, u[i*cn:(i+1)*cn])
+		}
+		if len(u) > cn*n {
+			cu[n-1] = u[(n-1)*cn:] // put any leftover in the last chunk
+		}
+		return cu
+	}
+	// run routine to insert then query users in N goroutines
+	t0 := time.Now()
+	var wg sync.WaitGroup
+	for _, chunk := range chunkUsers(users, ngoroutines) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			db := makeDb(dbfile)
+			db.Exec(
+				"PRAGMA journal_mode=WAL",
+				"PRAGMA synchronous=normal",
+				"PRAGMA foreign_keys=1",
+				"PRAGMA busy_timeout=10000", // 10s busy timeout
+			)
+			defer db.Close()
+			chunks := chunkUsers(chunk, 10)
+			checkChunk := func(i int) {
+				chunk := chunks[i]
+				first, last := chunk[0].Id, chunk[len(chunk)-1].Id
+				users := db.FindUsers(fmt.Sprintf("SELECT id,created,email,active FROM users WHERE id BETWEEN %d AND %d ORDER BY id", first, last))
+				MustBeEqual(len(chunk), len(users))
+				// validate query result
+				for i, u := range users {
+					MustBeEqual(i+first, u.Id)
+					MustBeEqual(2023, u.Created.Year())
+					MustBeEqual("user", u.Email[0:4])
+					MustBeEqual(true, u.Active)
+				}
+			}
+			for i, chunk := range chunks {
+				// insert chunk of users
+				db.InsertUsers(insertUserSql, chunk)
+				// read back last three chunks of users
+				for j := range 3 {
+					if i-j >= 0 {
+						checkChunk(i - j)
+					}
+				}
+			}
+		}()
+	}
+	// wait for completion
+	wg.Wait()
+	queryMillis := millisSince(t0)
+	// print results
+	bench := fmt.Sprintf("6_wal/%-2d", ngoroutines)
+	log.Printf("%s - insert_query - %-10s - %10d", bench, driverName, queryMillis)
+	log.Printf("%s - dbsize       - %-10s - %10d", bench, driverName, dbsize(dbfile))
 }
