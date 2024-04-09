@@ -2,6 +2,8 @@ package app
 
 import (
 	"database/sql"
+	"fmt"
+	"strings"
 )
 
 // SqlDb is a Db implementation that uses database/sql package.
@@ -25,6 +27,82 @@ func (d *SqlDb) Exec(sqls ...string) {
 		_, err := d.db.Exec(s)
 		MustBeNil(err)
 	}
+}
+
+func BulkInsert[T any](db *sql.DB, fInsertSql string, rows []T, ncols int, values func(*T) []any) {
+	cols := fmt.Sprintf("(%s)", repeatJoin("?", ncols, ","))
+	tx := try(db.Begin())("open tx")
+	var st1, st10, st100 *sql.Stmt
+	for n := len(rows); n > 0; n = len(rows) {
+		var batch []T
+		var stmt *sql.Stmt
+		if n >= 100 {
+			batch, rows = rows[:100], rows[100:]
+			if st100 == nil {
+				st100 = try(tx.Prepare(fmt.Sprintf(fInsertSql, repeatJoin(cols, 100, ","))))("prepare 100")
+			}
+			stmt = st100
+		} else if n >= 10 {
+			batch, rows = rows[:10], rows[10:]
+			if st10 == nil {
+				st10 = try(tx.Prepare(fmt.Sprintf(fInsertSql, repeatJoin(cols, 10, ","))))("prepare 10")
+			}
+			stmt = st10
+		} else {
+			batch, rows = rows[:1], rows[1:]
+			if st1 == nil {
+				st1 = try(tx.Prepare(fmt.Sprintf(fInsertSql, cols)))("prepare 1")
+			}
+			stmt = st1
+		}
+		args := make([]any, 0, ncols*len(batch))
+		for i := range batch {
+			args = append(args, values(&batch[i])...)
+		}
+		stmt.Exec(args...)
+	}
+	if st1 != nil {
+		try0(st1.Close(), "close st1")
+	}
+	if st10 != nil {
+		try0(st10.Close(), "close st10")
+	}
+	if st100 != nil {
+		try0(st100.Close(), "close st100")
+	}
+	try0(tx.Commit(), "commit")
+}
+
+func repeatJoin(str string, n int, sep string) string {
+	sb := strings.Builder{}
+	sb.Grow(len(str)*n + len(sep)*(n-1))
+	for i := range n {
+		if i > 0 {
+			sb.WriteString(sep)
+		}
+		sb.WriteString(str)
+	}
+	return sb.String()
+}
+
+func try[T any](t T, err error) func(string) T {
+	return func(desc string) T {
+		try0(err, desc)
+		return t
+	}
+}
+
+func try0(err error, desc string) {
+	if err != nil {
+		panic(fmt.Sprintf("failed to %s: %v", desc, err))
+	}
+}
+
+func (d *SqlDb) InsertUsersBulk(fInsertSql string, users []User) {
+	BulkInsert(d.db, fInsertSql, users, 4, func(u *User) []any {
+		a := [...]any{u.Id, BindTime(u.Created), &u.Email, u.Active}
+		return a[:]
+	})
 }
 
 func (d *SqlDb) InsertUsers(insertSql string, users []User) {

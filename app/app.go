@@ -22,9 +22,10 @@ func Run(makeDb func(dbfile string) Db) {
 		"large":      new(bool),
 		"concurrent": new(bool),
 		"wal":        new(bool),
+		"bulk":       new(bool),
 	}
 	for name, p := range benchmarks {
-		flag.BoolVar(p, name, true, "")
+		flag.BoolVar(p, name, false, "")
 	}
 	flag.Parse()
 	dbfile := flag.Arg(0)
@@ -39,6 +40,9 @@ func Run(makeDb func(dbfile string) Db) {
 	}
 	if *benchmarks["simple"] {
 		benchSimple(dbfile, verbose, makeDb)
+	}
+	if *benchmarks["bulk"] {
+		benchSimpleBulk(dbfile, verbose, makeDb)
 	}
 	if *benchmarks["complex"] {
 		benchComplex(dbfile, verbose, makeDb)
@@ -517,4 +521,52 @@ func benchWal(dbfile string, _verbose bool, ngoroutines int, makeDb func(dbfile 
 	bench := fmt.Sprintf("6_wal/%-2d", ngoroutines)
 	log.Printf("%s - insert_query - %-10s - %10d", bench, driverName, queryMillis)
 	log.Printf("%s - dbsize       - %-10s - %10d", bench, driverName, dbsize(dbfile))
+}
+
+// Insert 1 million user rows in one database transaction using bulk insert
+// strategy 1.
+// Then query all users once.
+func benchSimpleBulk(dbfile string, verbose bool, makeDb func(string) Db) {
+	removeDbfiles(dbfile)
+	db := makeDb(dbfile)
+	defer db.Close()
+	initJournalDelete(db)
+	// insert users
+	var users []User
+	base := time.Date(2023, 10, 1, 10, 0, 0, 0, time.Local)
+	const nusers = 1_000_000
+	for i := 0; i < nusers; i++ {
+		users = append(users, NewUser(
+			i+1,                                      // id,
+			base.Add(time.Duration(i)*time.Minute),   // created,
+			fmt.Sprintf("user%08d@example.com", i+1), // email,
+			true,                                     // active,
+		))
+	}
+	t0 := time.Now()
+	db.(BulkDb).InsertUsersBulk("INSERT INTO users(id,created,email,active) VALUES %s", users)
+	insertMillis := millisSince(t0)
+	if verbose {
+		log.Printf("  insert took %d ms", insertMillis)
+	}
+	// query users
+	t0 = time.Now()
+	users = db.FindUsers("SELECT id,created,email,active FROM users ORDER BY id")
+	MustBeEqual(len(users), nusers)
+	queryMillis := millisSince(t0)
+	if verbose {
+		log.Printf("  query took %d ms", queryMillis)
+	}
+	// validate query result
+	for i, u := range users {
+		MustBeEqual(i+1, u.Id)
+		Must(2023 <= u.Created.Year() && u.Created.Year() <= 2025, "wrong created year in %v", u.Created)
+		MustBeEqual("user0", u.Email[0:5])
+		MustBeEqual(true, u.Active)
+	}
+	// print results
+	bench := "7_bulk"
+	log.Printf("%s - insert - %-10s - %10d", bench, db.DriverName(), insertMillis)
+	log.Printf("%s - query  - %-10s - %10d", bench, db.DriverName(), queryMillis)
+	log.Printf("%s - dbsize - %-10s - %10d", bench, db.DriverName(), dbsize(dbfile))
 }

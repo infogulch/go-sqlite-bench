@@ -14,6 +14,11 @@ type Db interface {
 	Close()
 }
 
+type BulkDb interface {
+	Db
+	InsertUsersBulk(insertSql string, users []User)
+}
+
 // User is a registered User who can access the blog.
 type User struct {
 	Id      int
