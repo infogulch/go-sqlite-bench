@@ -60,7 +60,9 @@ func Run(makeDb func(dbfile string) Db) {
 	}
 	if *benchmarks["wal"] {
 		benchWal(dbfile, verbose, 1, makeDb)
+		benchWal(dbfile, verbose, 2, makeDb)
 		benchWal(dbfile, verbose, 4, makeDb)
+		benchWal(dbfile, verbose, 8, makeDb)
 		benchWal(dbfile, verbose, 16, makeDb)
 	}
 }
@@ -84,7 +86,7 @@ func initJournalWal(db Db) {
 		"PRAGMA journal_mode=WAL",
 		"PRAGMA synchronous=normal",
 		"PRAGMA foreign_keys=1",
-		"PRAGMA busy_timeout=5000", // 5s busy timeout
+		"PRAGMA busy_timeout=20000", // 20s busy timeout
 	)
 	initSchema(db)
 }
@@ -479,7 +481,7 @@ func benchWal(dbfile string, _verbose bool, ngoroutines int, makeDb func(dbfile 
 				"PRAGMA journal_mode=WAL",
 				"PRAGMA synchronous=normal",
 				"PRAGMA foreign_keys=1",
-				"PRAGMA busy_timeout=10000", // 10s busy timeout
+				"PRAGMA busy_timeout=20000", // 20s busy timeout
 			)
 			defer db.Close()
 			chunks := chunkUsers(chunk, 10)

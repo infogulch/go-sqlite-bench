@@ -12,7 +12,7 @@ require (
 	zombiezen.com/go/sqlite v1.1.2
 )
 
-replace github.com/ncruces/go-sqlite3 v0.13.0 => github.com/ncruces/go-sqlite3 v0.13.1-0.20240330005849-202445545d05
+replace github.com/ncruces/go-sqlite3 v0.13.0 => github.com/ncruces/go-sqlite3 v0.13.1-0.20240331232942-7c8d835ca93f
 
 replace github.com/tetratelabs/wazero v1.7.0 => github.com/ncruces/wazero v0.0.0-20240327075005-1e61961e4b45
 

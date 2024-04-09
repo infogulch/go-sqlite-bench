@@ -20,8 +20,8 @@ github.com/mattn/go-isatty v0.0.20 h1:xfD0iDuEKnDkl03q4limB+vH+GxLEtL/jb4xVJSWWE
 github.com/mattn/go-isatty v0.0.20/go.mod h1:W+V8PltTTMOvKvAeJH7IuucS94S2C6jfK/D7dTCTo3Y=
 github.com/mattn/go-sqlite3 v1.14.22 h1:2gZY6PC6kBnID23Tichd1K+Z0oS6nE/XwU+Vz/5o4kU=
 github.com/mattn/go-sqlite3 v1.14.22/go.mod h1:Uh1q+B4BYcTPb+yiD3kU8Ct7aC0hY9fxUwlHK0RXw+Y=
-github.com/ncruces/go-sqlite3 v0.13.1-0.20240330005849-202445545d05 h1:rcmSoMXpJ2sqT9RdmbF7FoP22PXxLUW/cWVzYZIjwi8=
-github.com/ncruces/go-sqlite3 v0.13.1-0.20240330005849-202445545d05/go.mod h1:xZAJtjpWkq8MW9Lxf2528mrg6WTy8+WmdgfZMBjuO6c=
+github.com/ncruces/go-sqlite3 v0.13.1-0.20240331232942-7c8d835ca93f h1:FHpiETxfauJHn3dJ5XaxvTh5TfQgLMizcjwIzl3seOw=
+github.com/ncruces/go-sqlite3 v0.13.1-0.20240331232942-7c8d835ca93f/go.mod h1:xZAJtjpWkq8MW9Lxf2528mrg6WTy8+WmdgfZMBjuO6c=
 github.com/ncruces/go-strftime v0.1.9 h1:bY0MQC28UADQmHmaF5dgpLmImcShSi2kHU9XLdhx/f4=
 github.com/ncruces/go-strftime v0.1.9/go.mod h1:Fwc5htZGVVkseilnfgOVb9mKy6w1naJmn9CehxcKcls=
 github.com/ncruces/julianday v1.0.0 h1:fH0OKwa7NWvniGQtxdJRxAgkBMolni2BjDHaWTxqt7M=
